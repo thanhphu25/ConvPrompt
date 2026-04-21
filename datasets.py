@@ -16,6 +16,11 @@ from torchvision import datasets, transforms
 from timm.data import create_transform
 
 from continual_datasets.continual_datasets import *
+try:
+    from continual_datasets.video_datasets import UCF101, ActivityNet
+except ImportError:
+    UCF101 = None
+    ActivityNet = None
 
 import utils
 
@@ -151,11 +156,12 @@ def build_continual_dataloader(args):
         #     break
         # exit(0)
 
-        dataloader.append({'train': data_loader_train, 'val': data_loader_val, 'feat_train': data_loader_feat_train})
+        dataloader.append({'train': data_loader_train, 'val': data_loader_val, 'feat_train': data_loader_mem})
 
     return dataloader, class_mask
 
 def get_dataset(dataset, transform_train, transform_val, args,):
+    dataset_feat_train = None
     if dataset == 'CIFAR100':
         dataset_train = datasets.CIFAR100(args.data_path, train=True, download=True, transform=transform_train)
         dataset_val = datasets.CIFAR100(args.data_path, train=False, download=True, transform=transform_val)
@@ -164,30 +170,37 @@ def get_dataset(dataset, transform_train, transform_val, args,):
     elif dataset == 'CIFAR10':
         dataset_train = datasets.CIFAR10(args.data_path, train=True, download=True, transform=transform_train)
         dataset_val = datasets.CIFAR10(args.data_path, train=False, download=True, transform=transform_val)
+        dataset_feat_train = datasets.CIFAR10(args.data_path, train=True, download=True, transform=transform_val)
     
     elif dataset == 'MNIST':
         dataset_train = MNIST_RGB(args.data_path, train=True, download=True, transform=transform_train)
         dataset_val = MNIST_RGB(args.data_path, train=False, download=True, transform=transform_val)
+        dataset_feat_train = MNIST_RGB(args.data_path, train=True, download=True, transform=transform_val)
     
     elif dataset == 'FashionMNIST':
         dataset_train = FashionMNIST(args.data_path, train=True, download=True, transform=transform_train)
         dataset_val = FashionMNIST(args.data_path, train=False, download=True, transform=transform_val)
+        dataset_feat_train = FashionMNIST(args.data_path, train=True, download=True, transform=transform_val)
     
     elif dataset == 'SVHN':
         dataset_train = SVHN(args.data_path, split='train', download=True, transform=transform_train)
         dataset_val = SVHN(args.data_path, split='test', download=True, transform=transform_val)
+        dataset_feat_train = SVHN(args.data_path, split='train', download=True, transform=transform_val)
     
     elif dataset == 'NotMNIST':
         dataset_train = NotMNIST(args.data_path, train=True, download=True, transform=transform_train)
         dataset_val = NotMNIST(args.data_path, train=False, download=True, transform=transform_val)
+        dataset_feat_train = NotMNIST(args.data_path, train=True, download=True, transform=transform_val)
     
     elif dataset == 'Flower102':
         dataset_train = Flowers102(args.data_path, split='train', download=True, transform=transform_train)
         dataset_val = Flowers102(args.data_path, split='test', download=True, transform=transform_val)
+        dataset_feat_train = Flowers102(args.data_path, split='train', download=True, transform=transform_val)
     
     elif dataset == 'Cars196':
         dataset_train = StanfordCars(args.data_path, split='train', download=True, transform=transform_train)
         dataset_val = StanfordCars(args.data_path, split='test', download=True, transform=transform_val)
+        dataset_feat_train = StanfordCars(args.data_path, split='train', download=True, transform=transform_val)
         
     elif dataset == 'CUB200':
         dataset_train = CUB200(args.data_path, train=True, download=True, transform=transform_train).data
@@ -197,10 +210,12 @@ def get_dataset(dataset, transform_train, transform_val, args,):
     elif dataset == 'Scene67':
         dataset_train = Scene67(args.data_path, train=True, download=True, transform=transform_train).data
         dataset_val = Scene67(args.data_path, train=False, download=True, transform=transform_val).data
+        dataset_feat_train = Scene67(args.data_path, train=True, download=True, transform=transform_val).data
 
     elif dataset == 'TinyImagenet':
         dataset_train = TinyImagenet(args.data_path, train=True, download=True, transform=transform_train).data
         dataset_val = TinyImagenet(args.data_path, train=False, download=True, transform=transform_val).data
+        dataset_feat_train = TinyImagenet(args.data_path, train=True, download=True, transform=transform_val).data
         
     elif dataset == 'Imagenet-R':
         dataset_train = Imagenet_R(args.data_path, train=True, download=True, transform=transform_train).data
@@ -208,12 +223,22 @@ def get_dataset(dataset, transform_train, transform_val, args,):
         dataset_feat_train = Imagenet_R(args.data_path, train=True, download=True, transform=transform_val).data
     
     elif dataset == 'UCF101':
+        if UCF101 is None:
+            raise ImportError(
+                "UCF101 requires decord. Install it first: `pip install decord`"
+            )
         dataset_train = UCF101(args.data_path, train=True, num_tasks = args.num_tasks, transform=transform_train)
         dataset_val   = UCF101(args.data_path, train=False, num_tasks = args.num_tasks, transform=transform_val)
+        dataset_feat_train = UCF101(args.data_path, train=True, num_tasks=args.num_tasks, transform=transform_val)
 
     elif dataset == 'ActivityNet':
+        if ActivityNet is None:
+            raise ImportError(
+                "ActivityNet requires decord. Install it first: `pip install decord`"
+            )
         dataset_train = ActivityNet(args.data_path, train=True, num_tasks = args.num_tasks, transform=transform_train)
         dataset_val   = ActivityNet(args.data_path, train=False, num_tasks = args.num_tasks, transform=transform_val)
+        dataset_feat_train = ActivityNet(args.data_path, train=True, num_tasks=args.num_tasks, transform=transform_val)
     
     else:
         raise ValueError('Dataset {} not found.'.format(dataset))

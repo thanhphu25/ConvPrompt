@@ -4,6 +4,8 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--batch-size', default=24, type=int, help='Batch size per device')
     subparsers.add_argument('--epochs', default=5, type=int)
     subparsers.add_argument('--use_transform', default=False, action='store_true', help='Use SLCA transforms')
+    subparsers.add_argument('--use_clip_grad', default=True, action='store_true', help='Using gradient clipping')
+    subparsers.add_argument('--SLCA', default=False, type=bool, help='Perform training on top of SLCA')
 
     # Model parameters
     subparsers.add_argument('--model', default='vit_base_patch16_224', type=str, metavar='MODEL', help='Name of model to train')
@@ -75,6 +77,10 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--train_mask', default=True, type=bool, help='if using the class mask at training')
     subparsers.add_argument('--task_inc', default=False, type=bool, help='if doing task incremental')
 
+    # Attribute generator parameters
+    subparsers.add_argument('--num_prompts_per_task', default=5, type=int, help='max number of prompts to be generated for each task')
+    subparsers.add_argument('--variable_num_prompts', default=True, type=bool, help='if variable number of prompts per task are to be used')
+
     # G-Prompt parameters
     subparsers.add_argument('--use_g_prompt', default=True, type=bool, help='if using G-Prompt')
     subparsers.add_argument('--g_prompt_length', default=5, type=int, help='length of G-Prompt')
@@ -85,6 +91,9 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--use_e_prompt', default=True, type=bool, help='if using the E-Prompt')
     subparsers.add_argument('--e_prompt_layer_idx', default=[2, 3, 4], type=int, nargs = "+", help='the layer index of the E-Prompt')
     subparsers.add_argument('--use_prefix_tune_for_e_prompt', default=True, type=bool, help='if using the prefix tune for E-Prompt')
+
+    # Conv Prompt parameters
+    subparsers.add_argument('--kernel_size', default=17, type=int, help='kernel size of the conv prompt')
 
     # Use prompt pool in L2P to implement E-Prompt
     subparsers.add_argument('--prompt_pool', default=True, type=bool,)
