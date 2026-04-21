@@ -9,6 +9,7 @@
 import sys
 import argparse
 import datetime
+import copy
 import random
 import numpy as np
 import time
@@ -82,6 +83,11 @@ def main(args):
         args=args
     )
     model.to(device)  
+    original_model = copy.deepcopy(model)
+    original_model.to(device)
+    original_model.eval()
+    for param in original_model.parameters():
+        param.requires_grad = False
 
     if args.freeze:
         
@@ -111,8 +117,8 @@ def main(args):
             else:
                 print('No checkpoint found at:', checkpoint_path)
                 return
-            _ = evaluate_till_now(model, data_loader, device, 
-                                            task_id, class_mask, acc_matrix, args,)
+            _ = evaluate_till_now(model, original_model, data_loader, device,
+                                  task_id, class_mask, acc_matrix, args,)
         
         return
 
@@ -155,8 +161,8 @@ def main(args):
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
 
-    train_and_evaluate(model,
-                    criterion, data_loader, lr_scheduler, optimizer,
+    train_and_evaluate(model, model_without_ddp, original_model,
+                    criterion, data_loader, optimizer, lr_scheduler,
                     device, class_mask, args)
     
     total_time = time.time() - start_time
@@ -191,6 +197,12 @@ if __name__ == '__main__':
     elif config == 'cub_slca':
         from configs.cub_slca import get_args_parser
         config_parser = subparser.add_parser('cub_slca', help='Split-CUB SLCA configs')
+    elif config == 'ucf101_convprompt':
+        from configs.ucf101_covprompt import get_args_parser
+        config_parser = subparser.add_parser('ucf101_convprompt', help='UCF101 ConvPrompt configs')
+    elif config == 'activitynet_convprompt':
+        from configs.activitynet_convprompt import get_args_parser
+        config_parser = subparser.add_parser('activitynet_convprompt', help='ActivityNet ConvPrompt configs')
     else:
         raise NotImplementedError
         
