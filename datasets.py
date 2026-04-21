@@ -298,6 +298,7 @@ def split_single_dataset(dataset_train, dataset_val, args, dataset_feat_train=No
 
 def build_transform(is_train, args):
     resize_im = args.input_size > 32
+    use_transform = getattr(args, 'use_transform', False)
     if is_train:
         scale = (0.05, 1.0)
         ratio = (3. / 4., 4. / 3.)
@@ -306,7 +307,7 @@ def build_transform(is_train, args):
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
         ])
-        if args.use_transform:
+        if use_transform:
             if "CUB" in args.dataset:
                 transform = transforms.Compose([
                     transforms.Resize((300, 300), interpolation=3),
@@ -350,7 +351,7 @@ def build_transform(is_train, args):
         t.append(transforms.CenterCrop(args.input_size))
     t.append(transforms.ToTensor())
 
-    if args.use_transform:
+    if use_transform:
         if "CUB" in args.dataset:
             t = [transforms.Resize(256, interpolation=3),
                 transforms.CenterCrop(224),

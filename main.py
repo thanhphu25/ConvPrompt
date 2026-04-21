@@ -173,9 +173,21 @@ if __name__ == '__main__':
     print("Started main")
     parser = argparse.ArgumentParser('DualPrompt training and evaluation configs')
     print("Parser created: ", parser)
-    
+
     print("Getting config")
-    config = parser.parse_known_args()[-1][0]
+    supported_configs = {
+        'cifar100_convprompt',
+        'imr_convprompt',
+        'cub_convprompt',
+        'cifar100_slca',
+        'imr_slca',
+        'cub_slca',
+        'ucf101_convprompt',
+        'activitynet_convprompt',
+    }
+    config = next((arg for arg in sys.argv[1:] if arg in supported_configs), None)
+    if config is None:
+        parser.error(f"missing config subcommand. Expected one of: {sorted(supported_configs)}")
 
     subparser = parser.add_subparsers(dest='subparser_name')
 
@@ -198,7 +210,7 @@ if __name__ == '__main__':
         from configs.cub_slca import get_args_parser
         config_parser = subparser.add_parser('cub_slca', help='Split-CUB SLCA configs')
     elif config == 'ucf101_convprompt':
-        from configs.ucf101_covprompt import get_args_parser
+        from configs.ucf101_convprompt import get_args_parser
         config_parser = subparser.add_parser('ucf101_convprompt', help='UCF101 ConvPrompt configs')
     elif config == 'activitynet_convprompt':
         from configs.activitynet_convprompt import get_args_parser
@@ -209,7 +221,38 @@ if __name__ == '__main__':
     get_args_parser(config_parser)
 
     print("Reached here")
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    launcher_flags = {
+        '--nproc_per_node',
+        '--nnodes',
+        '--node_rank',
+        '--master_addr',
+        '--master_port',
+        '--local_rank',
+        '--rdzv_backend',
+        '--rdzv_endpoint',
+        '--rdzv_id',
+    }
+    invalid_unknown = []
+    i = 0
+    while i < len(unknown_args):
+        token = unknown_args[i]
+        is_launcher_flag = any(
+            token == flag or token.startswith(flag + '=')
+            for flag in launcher_flags
+        )
+        if is_launcher_flag:
+            if '=' not in token and (i + 1) < len(unknown_args) and not unknown_args[i + 1].startswith('-'):
+                i += 2
+            else:
+                i += 1
+            continue
+
+        invalid_unknown.append(token)
+        i += 1
+
+    if invalid_unknown:
+        parser.error('unrecognized arguments: {}'.format(' '.join(invalid_unknown)))
     
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
