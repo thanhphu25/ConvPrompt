@@ -26,6 +26,22 @@ from timm.utils import accuracy
 import utils
 
 
+def _normalize_mask_indices(mask, num_classes):
+    mask_arr = np.asarray(mask, dtype=np.int64)
+    if mask_arr.size == 0:
+        return mask_arr
+
+    # Some dataset splits store labels as 1..N. Convert to 0..N-1 when detected.
+    if mask_arr.min() >= 1 and mask_arr.max() <= num_classes and not np.any(mask_arr == 0):
+        mask_arr = mask_arr - 1
+
+    mask_arr = mask_arr[(mask_arr >= 0) & (mask_arr < num_classes)]
+    if mask_arr.size == 0:
+        return mask_arr
+
+    return np.unique(mask_arr)
+
+
 def train_one_epoch(model: torch.nn.Module, original_model: torch.nn.Module,
                     criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
@@ -73,10 +89,13 @@ def train_one_epoch(model: torch.nn.Module, original_model: torch.nn.Module,
             logits = logits.reshape(batch_size, num_segments, -1).mean(dim=1)
 
         if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            num_classes = logits.shape[1]
+            mask = _normalize_mask_indices(class_mask[task_id], num_classes)
+            if mask.size > 0:
+                not_mask = np.setdiff1d(np.arange(num_classes), mask, assume_unique=True)
+                if not_mask.size > 0:
+                    not_mask = torch.tensor(not_mask, dtype=torch.int64, device=device)
+                    logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         loss = criterion(logits, target)
         if args.pull_constraint and 'reduce_sim' in output:
@@ -147,11 +166,13 @@ def evaluate(model: torch.nn.Module, original_model: torch.nn.Module, data_loade
                 logits = logits.reshape(batch_size, num_segments, -1).mean(dim=1)
 
             if args.task_inc and class_mask is not None:
-                mask = class_mask[task_id]
-                mask = torch.tensor(mask, dtype=torch.int64).to(device)
-                logits_mask = torch.ones_like(logits, device=device) * float('-inf')
-                logits_mask = logits_mask.index_fill(1, mask, 0.0)
-                logits = logits + logits_mask
+                num_classes = logits.shape[1]
+                mask = _normalize_mask_indices(class_mask[task_id], num_classes)
+                if mask.size > 0:
+                    mask = torch.tensor(mask, dtype=torch.int64, device=device)
+                    logits_mask = torch.ones_like(logits, device=device) * float('-inf')
+                    logits_mask = logits_mask.index_fill(1, mask, 0.0)
+                    logits = logits + logits_mask
 
             loss = criterion(logits, target)
             predicts = torch.max(logits, dim=1)[1]

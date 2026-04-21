@@ -381,7 +381,7 @@ class VisionTransformer(nn.Module):
         self.num_prefix_tokens = 1 if class_token else 0
         self.no_embed_class = no_embed_class
         self.grad_checkpointing = False
-        self.use_multihead=True
+        self.use_multihead = bool(getattr(args, 'use_multihead', False))
         print('Using multihead: ', self.use_multihead)
 
         self.patch_embed = embed_layer(
