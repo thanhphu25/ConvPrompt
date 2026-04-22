@@ -481,6 +481,7 @@ class VisionTransformer(nn.Module):
 
         self.enable_lgsp = bool(args is not None and getattr(args, 'lgsp', 'NO') == 'YES')
         self.lgsp_type = getattr(args, 'lgsp_type', 'LGSP') if args is not None else 'LGSP'
+        print(f"LGSP enabled: {self.enable_lgsp} (mode: {self.lgsp_type})")
         if self.enable_lgsp:
             if self.lgsp_type in ['LGSP', 'LSP']:
                 lsp_pool_size = max(1, int(getattr(args, 'lsp_pool_size', 24)))

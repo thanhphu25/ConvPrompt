@@ -104,6 +104,7 @@ def main(args):
         
     
     print(args)
+    print(f"[LGSP] enabled={args.lgsp} type={args.lgsp_type}")
 
     if args.eval:
         acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
