@@ -31,10 +31,6 @@ def _normalize_mask_indices(mask, num_classes):
     if mask_arr.size == 0:
         return mask_arr
 
-    # Some dataset splits store labels as 1..N. Convert to 0..N-1 when detected.
-    if mask_arr.min() >= 1 and mask_arr.max() <= num_classes and not np.any(mask_arr == 0):
-        mask_arr = mask_arr - 1
-
     mask_arr = mask_arr[(mask_arr >= 0) & (mask_arr < num_classes)]
     if mask_arr.size == 0:
         return mask_arr
