@@ -21,6 +21,7 @@ from typing import Iterable
 
 import numpy as np
 import torch
+from timm.optim import create_optimizer
 from timm.utils import accuracy
 
 import utils
@@ -36,6 +37,68 @@ def _normalize_mask_indices(mask, num_classes):
         return mask_arr
 
     return np.unique(mask_arr)
+
+
+def _build_optimizer_and_scheduler(model: torch.nn.Module, args):
+    lgsp_enabled = getattr(args, 'lgsp', 'NO') == 'YES'
+    optim_params = []
+
+    if lgsp_enabled:
+        lgsp_params_set = set()
+        lgsp_groups = []
+
+        if getattr(args, 'lgsp_type', 'LGSP') in ['LGSP', 'LSP']:
+            prompt_branch_params = [
+                p for n, p in model.named_parameters()
+                if 'prompt_generators' in n and p.requires_grad
+            ]
+            if prompt_branch_params:
+                lgsp_groups.append({'params': prompt_branch_params, 'lr': getattr(args, 'lr_local', 2e-4)})
+                for p in prompt_branch_params:
+                    lgsp_params_set.add(id(p))
+
+        if getattr(args, 'lgsp_type', 'LGSP') in ['LGSP', 'GSP']:
+            freq_params = [
+                p for n, p in model.named_parameters()
+                if (n == 'weights' or n.endswith('.weights')) and p.requires_grad
+            ]
+            if freq_params:
+                lgsp_groups.append({'params': freq_params, 'lr': getattr(args, 'lr_Frequency_mask', 0.03)})
+                for p in freq_params:
+                    lgsp_params_set.add(id(p))
+
+        if getattr(args, 'lgsp_type', 'LGSP') == 'LGSP':
+            adapt_params = [
+                p for n, p in model.named_parameters()
+                if (n in ('alpha', 'beta') or n.endswith('.alpha') or n.endswith('.beta')) and p.requires_grad
+            ]
+            if adapt_params:
+                lgsp_groups.append({'params': adapt_params, 'lr': args.lr})
+                for p in adapt_params:
+                    lgsp_params_set.add(id(p))
+
+        remaining_params = [p for _, p in model.named_parameters() if id(p) not in lgsp_params_set and p.requires_grad]
+        if remaining_params:
+            optim_params.append({'params': remaining_params})
+        optim_params.extend(lgsp_groups)
+
+    if not optim_params:
+        all_trainable = [p for p in model.parameters() if p.requires_grad]
+        optim_params = [{'params': all_trainable}]
+
+    if not args.SLCA:
+        optimizer = create_optimizer(args, optim_params)
+        if args.sched != 'constant':
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=0)
+        else:
+            lr_scheduler = None
+    else:
+        milestones = [18] if 'CIFAR' in args.dataset else [40]
+        lrate_decay = 0.1
+        optimizer = torch.optim.SGD(optim_params, lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=milestones, gamma=lrate_decay)
+
+    return optimizer, lr_scheduler
 
 
 def train_one_epoch(model: torch.nn.Module, original_model: torch.nn.Module,
@@ -225,6 +288,9 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
 
     for task_id in range(args.num_tasks):
+        if task_id == 0 or (task_id > 0 and args.reinit_optimizer):
+            optimizer, lr_scheduler = _build_optimizer_and_scheduler(model, args)
+
         if args.prompt_pool and args.shared_prompt_pool:
             if task_id > 0:
                 prev_start = (task_id - 1) * args.top_k
@@ -276,9 +342,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                 model.e_prompt.prompt_key.grad.zero_()
                             model.e_prompt.prompt_key[cur_idx] = model.e_prompt.prompt_key[prev_idx]
                             optimizer.param_groups[0]['params'] = model.parameters()
-
-        if task_id > 0 and args.reinit_optimizer:
-            optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay) if not args.SLCA else torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
 
         for epoch in range(args.epochs):
             train_stats = train_one_epoch(model=model, original_model=original_model, criterion=criterion,

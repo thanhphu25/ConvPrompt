@@ -381,6 +381,7 @@ class VisionTransformer(nn.Module):
         self.num_prefix_tokens = 1 if class_token else 0
         self.no_embed_class = no_embed_class
         self.grad_checkpointing = False
+        self.args = args
         self.use_multihead = bool(getattr(args, 'use_multihead', False))
         print('Using multihead: ', self.use_multihead)
 
@@ -477,6 +478,35 @@ class VisionTransformer(nn.Module):
             self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         else:
             self.head = SimpleContinualLinear(embed_dim, (int)(self.num_classes/self.num_tasks))
+
+        self.enable_lgsp = bool(args is not None and getattr(args, 'lgsp', 'NO') == 'YES')
+        self.lgsp_type = getattr(args, 'lgsp_type', 'LGSP') if args is not None else 'LGSP'
+        if self.enable_lgsp:
+            if self.lgsp_type in ['LGSP', 'LSP']:
+                lsp_pool_size = max(1, int(getattr(args, 'lsp_pool_size', 24)))
+                prompt_hid_dim = max(1, int(getattr(args, 'prompt_hid_dim', in_chans)))
+                first_kernel_size = int(getattr(args, 'first_kernel_size', 3))
+                second_kernel_size = int(getattr(args, 'second_kernel_size', 5))
+
+                self.prompt_generators = nn.ModuleList([
+                    nn.Sequential(
+                        nn.Conv2d(in_chans, prompt_hid_dim, kernel_size=first_kernel_size, padding=first_kernel_size // 2),
+                        nn.GELU(),
+                        nn.Conv2d(prompt_hid_dim, in_chans, kernel_size=second_kernel_size, padding=second_kernel_size // 2),
+                    )
+                    for _ in range(lsp_pool_size)
+                ])
+                self.prompt_dropout = nn.Dropout2d(p=float(getattr(args, 'Dropout_Prompt', 0.1)))
+                self.prompt_selector = nn.Linear(in_chans, lsp_pool_size)
+
+            if self.lgsp_type in ['LGSP', 'GSP']:
+                num_r = max(1, int(getattr(args, 'num_r', 100)))
+                self.weights = nn.Parameter(torch.zeros(num_r))
+                nn.init.normal_(self.weights, std=0.02)
+
+            if self.lgsp_type == 'LGSP':
+                self.alpha = nn.Parameter(torch.tensor(0.5))
+                self.beta = nn.Parameter(torch.tensor(0.5))
         
 
         if weight_init != 'skip':
@@ -524,9 +554,90 @@ class VisionTransformer(nn.Module):
             self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
+    def get_prompts(self, x, session=-1):
+        res = {}
+        if not hasattr(self, 'prompt_generators'):
+            res['prompts'] = torch.zeros_like(x)
+            return res
+
+        prompts_list = [self.prompt_dropout(generator(x)) for generator in self.prompt_generators]
+        prompts_tensor = torch.stack(prompts_list, dim=1)
+
+        selector_input = F.adaptive_avg_pool2d(x, output_size=1).flatten(1)
+        weights = F.softmax(self.prompt_selector(selector_input), dim=1)
+        weighted_prompt = torch.sum(prompts_tensor * weights[:, :, None, None, None], dim=1)
+
+        res['weights'] = weights
+        res['prompts'] = weighted_prompt
+        return res
+
+    def get_Frequency_mask(self, input):
+        if not hasattr(self, 'weights'):
+            return input
+
+        fft_im = torch.fft.fftn(input, dim=(-2, -1))
+        fft_im_center = torch.fft.fftshift(fft_im, dim=(-2, -1))
+
+        _, _, h, w = input.shape
+        y, x = torch.meshgrid(
+            torch.arange(h, device=input.device, dtype=torch.float32),
+            torch.arange(w, device=input.device, dtype=torch.float32),
+            indexing='ij'
+        )
+        center_y, center_x = h // 2, w // 2
+        distances = torch.sqrt((y - center_y) ** 2 + (x - center_x) ** 2)
+
+        max_radius = float(min(h, w)) / 2.0
+        radii = torch.linspace(0.0, max_radius, self.weights.shape[0], device=input.device)
+
+        beta_val = 4.0
+        ring_masks = []
+        for i, radius in enumerate(radii):
+            inner_radius = 0.0 if i == 0 else radii[i - 1] + 1e-6
+            outer_mask = torch.sigmoid(-beta_val * (distances - radius))
+            inner_mask = torch.sigmoid(-beta_val * (distances - inner_radius))
+            ring_masks.append((outer_mask - inner_mask).float())
+
+        ring_masks = torch.stack(ring_masks, dim=0)
+        temperature = float(getattr(self.args, 'temperature', 0.1)) if self.args is not None else 0.1
+        weights_normalized = torch.softmax(self.weights * temperature, dim=0)
+        weighted_ring_masks = weights_normalized[:, None, None] * ring_masks
+        final_mask = weighted_ring_masks.sum(dim=0)
+
+        fft_selected = fft_im_center * final_mask[None, None, :, :]
+        ifft_residual = torch.fft.ifftn(torch.fft.ifftshift(fft_selected, dim=(-2, -1)), dim=(-2, -1))
+        ifft_residual = torch.abs(ifft_residual)
+        output = input + (ifft_residual - input) * 0.1
+        return output
+
+    def apply_lgsp(self, x, session=-1):
+        if not self.enable_lgsp:
+            return x
+
+        if self.lgsp_type == 'LGSP':
+            res = self.get_prompts(x, session=session)
+            prompts = res['prompts']
+            input1 = x + prompts
+            input2 = self.get_Frequency_mask(x)
+            return self.alpha * input1 + self.beta * input2
+
+        if self.lgsp_type == 'LSP':
+            res = self.get_prompts(x, session=session)
+            prompts = res['prompts']
+            return x + prompts
+
+        if self.lgsp_type == 'GSP':
+            return self.get_Frequency_mask(x)
+
+        return x
+
 
 
     def forward_features(self, x, task_id=-1, cls_features=None, train=False):
+        res = dict()
+        if self.enable_lgsp:
+            x = self.apply_lgsp(x, session=task_id)
+
         x = self.patch_embed(x)
 
         if self.cls_token is not None:
@@ -590,8 +701,6 @@ class VisionTransformer(nn.Module):
                     
             else:
                 x = self.blocks(x)
-                
-                res = dict()
 
         x = self.norm(x)
         res['x'] = x
