@@ -118,6 +118,12 @@ def build_continual_dataloader(args):
             n_seg = getattr(base_train, "num_segments", 1) or 1
             train_bs = max(1, args.batch_size // n_seg)
             val_bs = max(1, args.batch_size // n_seg)
+
+            video_batch_cap = getattr(args, 'video_batch_cap', 0)
+            if video_batch_cap and video_batch_cap > 0:
+                train_bs = min(train_bs, int(video_batch_cap))
+                val_bs = min(val_bs, int(video_batch_cap))
+
             if utils.is_main_process() and train_bs != args.batch_size:
                 print(
                     f"DataLoader batch_size {args.batch_size} -> {train_bs} videos/step "

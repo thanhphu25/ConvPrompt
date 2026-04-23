@@ -2,6 +2,7 @@ import argparse
 
 def get_args_parser(subparsers):
     subparsers.add_argument('--batch-size', default=24, type=int, help='Batch size per device')
+    subparsers.add_argument('--video_batch_cap', default=16, type=int, help='Cap videos/step for video datasets to control VRAM')
     subparsers.add_argument('--epochs', default=5, type=int)
     subparsers.add_argument('--use_transform', default=False, action='store_true', help='Use SLCA transforms')
     subparsers.add_argument('--use_clip_grad', default=True, action='store_true', help='Using gradient clipping')

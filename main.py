@@ -37,6 +37,12 @@ warnings.filterwarnings('ignore', 'Argument interpolation should be of type Inte
 def main(args):
     utils.init_distributed_mode(args)
 
+    # torchrun/launch with a single process still sets distributed env vars,
+    # but DDP adds memory overhead without any benefit in this case.
+    if getattr(args, 'distributed', False) and getattr(args, 'world_size', 1) <= 1:
+        print('Single-process distributed launch detected, switching to non-DDP mode.')
+        args.distributed = False
+
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
