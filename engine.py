@@ -374,7 +374,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args)
 
             if lr_scheduler:
-                lr_scheduler.step(epoch)
+                lr_scheduler.step()
 
         test_stats = evaluate_till_now(model=model, original_model=original_model, data_loader=data_loader, device=device,
                                        task_id=task_id, class_mask=class_mask, acc_matrix=acc_matrix, args=args)

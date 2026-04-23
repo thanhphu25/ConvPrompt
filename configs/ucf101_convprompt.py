@@ -25,7 +25,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--reinit_optimizer', type=bool, default=True, help='reinit optimizer (default: True)')
 
     # Learning rate schedule parameters
-    subparsers.add_argument('--sched', default='cosine', choices=['cosine', 'multistep', 'constant'], type=str, metavar='SCHEDULER', help='LR scheduler')
+    subparsers.add_argument('--sched', default='constant', choices=['cosine', 'multistep', 'constant'], type=str, metavar='SCHEDULER', help='LR scheduler')
     subparsers.add_argument('--lr', type=float, default=0.005, metavar='LR', help='base learning rate before batch scaling')
     subparsers.add_argument('--lr-noise', type=float, nargs='+', default=None, metavar='pct, pct', help='learning rate noise on/off epoch percentages')
     subparsers.add_argument('--lr-noise-pct', type=float, default=0.67, metavar='PERCENT', help='learning rate noise limit percent (default: 0.67)')
