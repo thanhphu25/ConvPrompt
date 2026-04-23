@@ -51,6 +51,7 @@ def collate_video(batch):
 def build_continual_dataloader(args):
     dataloader = list()
     class_mask = list() if args.task_inc or args.train_mask else None
+    effective_train_batch_sizes = []
 
     transform_train = build_transform(True, args)
     transform_val = build_transform(False, args)
@@ -129,6 +130,8 @@ def build_continual_dataloader(args):
                     f"DataLoader batch_size {args.batch_size} -> {train_bs} videos/step "
                     f"(num_segments={n_seg}) so flattened inputs are ~{train_bs * n_seg} frames/step."
                 )
+
+        effective_train_batch_sizes.append(int(train_bs))
         
         data_loader_train = torch.utils.data.DataLoader(
             dataset_train, sampler=sampler_train,
@@ -163,6 +166,9 @@ def build_continual_dataloader(args):
         # exit(0)
 
         dataloader.append({'train': data_loader_train, 'val': data_loader_val, 'feat_train': data_loader_mem})
+
+    if effective_train_batch_sizes:
+        args.effective_batch_size = min(effective_train_batch_sizes)
 
     return dataloader, class_mask
 

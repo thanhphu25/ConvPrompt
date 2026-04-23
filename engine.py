@@ -101,6 +101,23 @@ def _build_optimizer_and_scheduler(model: torch.nn.Module, args):
     return optimizer, lr_scheduler
 
 
+def _refresh_optimizer_params_for_shared_prompt(optimizer: torch.optim.Optimizer, model: torch.nn.Module):
+    # Legacy behavior only applies safely when a single param group is used.
+    # With LGSP enabled, optimizer can have multiple LR groups and force-overwriting
+    # group 0 with all params can break group-wise optimization.
+    if len(optimizer.param_groups) == 1:
+        optimizer.param_groups[0]['params'] = list(model.parameters())
+
+
+def _log_optimizer_groups(task_id: int, optimizer: torch.optim.Optimizer):
+    group_summaries = []
+    for idx, group in enumerate(optimizer.param_groups):
+        group_summaries.append(
+            f"g{idx}: lr={group.get('lr', 0.0):.6g}, n_params={len(group.get('params', []))}"
+        )
+    print(f"[Task {task_id + 1}] Optimizer groups -> " + " | ".join(group_summaries))
+
+
 def train_one_epoch(model: torch.nn.Module, original_model: torch.nn.Module,
                     criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
@@ -290,6 +307,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     for task_id in range(args.num_tasks):
         if task_id == 0 or (task_id > 0 and args.reinit_optimizer):
             optimizer, lr_scheduler = _build_optimizer_and_scheduler(model, args)
+        _log_optimizer_groups(task_id, optimizer)
 
         if args.prompt_pool and args.shared_prompt_pool:
             if task_id > 0:
@@ -310,12 +328,12 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                             if model.module.e_prompt.prompt.grad is not None:
                                 model.module.e_prompt.prompt.grad.zero_()
                             model.module.e_prompt.prompt[cur_idx] = model.module.e_prompt.prompt[prev_idx]
-                            optimizer.param_groups[0]['params'] = model.module.parameters()
+                            _refresh_optimizer_params_for_shared_prompt(optimizer, model.module)
                         else:
                             if model.e_prompt.prompt.grad is not None:
                                 model.e_prompt.prompt.grad.zero_()
                             model.e_prompt.prompt[cur_idx] = model.e_prompt.prompt[prev_idx]
-                            optimizer.param_groups[0]['params'] = model.parameters()
+                            _refresh_optimizer_params_for_shared_prompt(optimizer, model)
 
         if args.prompt_pool and args.shared_prompt_key:
             if task_id > 0:
@@ -336,12 +354,12 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                             if model.module.e_prompt.prompt_key.grad is not None:
                                 model.module.e_prompt.prompt_key.grad.zero_()
                             model.module.e_prompt.prompt_key[cur_idx] = model.module.e_prompt.prompt_key[prev_idx]
-                            optimizer.param_groups[0]['params'] = model.module.parameters()
+                            _refresh_optimizer_params_for_shared_prompt(optimizer, model.module)
                         else:
                             if model.e_prompt.prompt_key.grad is not None:
                                 model.e_prompt.prompt_key.grad.zero_()
                             model.e_prompt.prompt_key[cur_idx] = model.e_prompt.prompt_key[prev_idx]
-                            optimizer.param_groups[0]['params'] = model.parameters()
+                            _refresh_optimizer_params_for_shared_prompt(optimizer, model)
 
         for epoch in range(args.epochs):
             train_stats = train_one_epoch(model=model, original_model=original_model, criterion=criterion,

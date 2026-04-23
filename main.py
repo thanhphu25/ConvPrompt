@@ -111,6 +111,8 @@ def main(args):
     
     print(args)
     print(f"[LGSP] enabled={args.lgsp} type={args.lgsp_type}")
+    if args.lgsp != 'YES':
+        print("[LGSP] WARNING: LGSP is disabled. Running baseline ConvPrompt.")
 
     if args.eval:
         acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
@@ -141,11 +143,13 @@ def main(args):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('number of params:', n_parameters)
 
+    effective_batch_size = getattr(args, 'effective_batch_size', args.batch_size)
     if args.unscale_lr:
-        global_batch_size = args.batch_size
+        global_batch_size = effective_batch_size
     else:
-        global_batch_size = args.batch_size * args.world_size
+        global_batch_size = effective_batch_size * args.world_size
     args.lr = args.lr * global_batch_size / 256.0
+    print(f"LR scaling uses effective batch size: {effective_batch_size} (world_size={args.world_size})")
 
 
     criterion = torch.nn.CrossEntropyLoss().to(device)
