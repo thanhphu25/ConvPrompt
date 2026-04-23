@@ -7,6 +7,7 @@
 # -- Jaeho Lee, dlwogh9344@khu.ac.kr
 # ------------------------------------------
 
+import math
 import random
 
 import torch
@@ -52,6 +53,7 @@ def build_continual_dataloader(args):
     dataloader = list()
     class_mask = list() if args.task_inc or args.train_mask else None
     effective_train_batch_sizes = []
+    gradient_accumulation_steps_per_task = []
 
     transform_train = build_transform(True, args)
     transform_val = build_transform(False, args)
@@ -131,7 +133,20 @@ def build_continual_dataloader(args):
                     f"(num_segments={n_seg}) so flattened inputs are ~{train_bs * n_seg} frames/step."
                 )
 
-        effective_train_batch_sizes.append(int(train_bs))
+        gradient_accum_steps = 1
+        if video_collate is not None:
+            # Keep optimization dynamics close to the requested batch size even
+            # when we cap videos/step for memory reasons.
+            gradient_accum_steps = max(1, math.ceil(args.batch_size / float(train_bs)))
+
+        gradient_accumulation_steps_per_task.append(int(gradient_accum_steps))
+        effective_train_batch_sizes.append(int(train_bs * gradient_accum_steps))
+
+        if utils.is_main_process() and gradient_accum_steps > 1:
+            print(
+                f"Using gradient accumulation: {gradient_accum_steps} steps "
+                f"(videos/step={train_bs}, effective videos/update={train_bs * gradient_accum_steps})."
+            )
         
         data_loader_train = torch.utils.data.DataLoader(
             dataset_train, sampler=sampler_train,
@@ -169,6 +184,15 @@ def build_continual_dataloader(args):
 
     if effective_train_batch_sizes:
         args.effective_batch_size = min(effective_train_batch_sizes)
+
+    if gradient_accumulation_steps_per_task:
+        unique_steps = sorted(set(gradient_accumulation_steps_per_task))
+        args.gradient_accumulation_steps = int(max(unique_steps))
+        if utils.is_main_process() and len(unique_steps) > 1:
+            print(
+                "WARNING: per-task gradient accumulation differs across tasks: "
+                f"{unique_steps}. Using max={args.gradient_accumulation_steps}."
+            )
 
     return dataloader, class_mask
 

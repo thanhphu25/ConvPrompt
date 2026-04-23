@@ -144,12 +144,28 @@ def main(args):
     print('number of params:', n_parameters)
 
     effective_batch_size = getattr(args, 'effective_batch_size', args.batch_size)
+    grad_accum_steps = max(1, int(getattr(args, 'gradient_accumulation_steps', 1)))
     if args.unscale_lr:
         global_batch_size = effective_batch_size
     else:
         global_batch_size = effective_batch_size * args.world_size
     args.lr = args.lr * global_batch_size / 256.0
-    print(f"LR scaling uses effective batch size: {effective_batch_size} (world_size={args.world_size})")
+    print(
+        f"LR scaling uses effective batch size: {effective_batch_size} "
+        f"(grad_accum={grad_accum_steps}, world_size={args.world_size})"
+    )
+    if args.dataset == 'Split-UCF101' and args.lr < 1e-3:
+        print(
+            "[LR WARNING] Effective learning rate is very low for UCF101 and may cause underfitting/forgetting. "
+            "Consider increasing --lr or reducing --video_batch_cap."
+        )
+    if getattr(args, 'lgsp', 'NO') == 'YES':
+        freq_lr = float(getattr(args, 'lr_Frequency_mask', 0.03))
+        if args.lr > 0 and freq_lr / args.lr > 10.0:
+            print(
+                "[LGSP LR WARNING] lr_Frequency_mask is much larger than base LR "
+                f"({freq_lr:.6g} vs {args.lr:.6g}). This can destabilize continual learning."
+            )
 
 
     criterion = torch.nn.CrossEntropyLoss().to(device)

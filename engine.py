@@ -112,8 +112,14 @@ def _refresh_optimizer_params_for_shared_prompt(optimizer: torch.optim.Optimizer
 def _log_optimizer_groups(task_id: int, optimizer: torch.optim.Optimizer):
     group_summaries = []
     for idx, group in enumerate(optimizer.param_groups):
+        params = group.get('params', [])
+        n_tensors = len(params)
+        n_scalars = 0
+        for p in params:
+            if isinstance(p, torch.Tensor):
+                n_scalars += int(p.numel())
         group_summaries.append(
-            f"g{idx}: lr={group.get('lr', 0.0):.6g}, n_params={len(group.get('params', []))}"
+            f"g{idx}: lr={group.get('lr', 0.0):.6g}, n_tensors={n_tensors}, n_scalars={n_scalars}"
         )
     print(f"[Task {task_id + 1}] Optimizer groups -> " + " | ".join(group_summaries))
 

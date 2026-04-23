@@ -2,8 +2,8 @@ import argparse
 
 def get_args_parser(subparsers):
     subparsers.add_argument('--batch-size', default=24, type=int, help='Batch size per device')
-    subparsers.add_argument('--video_batch_cap', default=16, type=int, help='Cap videos/step for video datasets to control VRAM')
-    subparsers.add_argument('--epochs', default=5, type=int)
+    subparsers.add_argument('--video_batch_cap', default=0, type=int, help='Cap videos/step for video datasets to control VRAM (0 disables cap)')
+    subparsers.add_argument('--epochs', default=10, type=int)
     subparsers.add_argument('--use_transform', default=False, action='store_true', help='Use SLCA transforms')
     subparsers.add_argument('--use_clip_grad', default=True, action='store_true', help='Using gradient clipping')
     subparsers.add_argument('--SLCA', default=False, type=bool, help='Perform training on top of SLCA')
@@ -25,8 +25,8 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--reinit_optimizer', type=bool, default=True, help='reinit optimizer (default: True)')
 
     # Learning rate schedule parameters
-    subparsers.add_argument('--sched', default='constant', type=str, metavar='SCHEDULER', help='LR scheduler (default: "constant"')
-    subparsers.add_argument('--lr', type=float, default=0.03, metavar='LR', help='learning rate (default: 0.03)')
+    subparsers.add_argument('--sched', default='cosine', choices=['cosine', 'multistep', 'constant'], type=str, metavar='SCHEDULER', help='LR scheduler')
+    subparsers.add_argument('--lr', type=float, default=0.005, metavar='LR', help='base learning rate before batch scaling')
     subparsers.add_argument('--lr-noise', type=float, nargs='+', default=None, metavar='pct, pct', help='learning rate noise on/off epoch percentages')
     subparsers.add_argument('--lr-noise-pct', type=float, default=0.67, metavar='PERCENT', help='learning rate noise limit percent (default: 0.67)')
     subparsers.add_argument('--lr-noise-std', type=float, default=1.0, metavar='STDDEV', help='learning rate noise std-dev (default: 1.0)')
@@ -83,14 +83,14 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--variable_num_prompts', default=True, type=bool, help='if variable number of prompts per task are to be used')
 
     # G-Prompt parameters
-    subparsers.add_argument('--use_g_prompt', default=True, type=bool, help='if using G-Prompt')
+    subparsers.add_argument('--use_g_prompt', default=False, type=bool, help='if using G-Prompt')
     subparsers.add_argument('--g_prompt_length', default=5, type=int, help='length of G-Prompt')
-    subparsers.add_argument('--g_prompt_layer_idx', default=[0, 1], type=int, nargs = "+", help='the layer index of the G-Prompt')
+    subparsers.add_argument('--g_prompt_layer_idx', default=[], type=int, nargs = "+", help='the layer index of the G-Prompt')
     subparsers.add_argument('--use_prefix_tune_for_g_prompt', default=True, type=bool, help='if using the prefix tune for G-Prompt')
     
     # E-Prompt parameters
     subparsers.add_argument('--use_e_prompt', default=True, type=bool, help='if using the E-Prompt')
-    subparsers.add_argument('--e_prompt_layer_idx', default=[2, 3, 4], type=int, nargs = "+", help='the layer index of the E-Prompt')
+    subparsers.add_argument('--e_prompt_layer_idx', default=[0, 1, 2, 3, 4, 5, 6], type=int, nargs = "+", help='the layer index of the E-Prompt')
     subparsers.add_argument('--use_prefix_tune_for_e_prompt', default=True, type=bool, help='if using the prefix tune for E-Prompt')
 
     # Conv Prompt parameters
@@ -99,16 +99,16 @@ def get_args_parser(subparsers):
     # Use prompt pool in L2P to implement E-Prompt
     subparsers.add_argument('--prompt_pool', default=True, type=bool,)
     subparsers.add_argument('--size', default=10, type=int,)
-    subparsers.add_argument('--length', default=5,type=int, )
+    subparsers.add_argument('--length', default=20,type=int, )
     subparsers.add_argument('--top_k', default=1, type=int, )
     subparsers.add_argument('--initializer', default='uniform', type=str,)
     subparsers.add_argument('--prompt_key', default=True, type=bool,)
     subparsers.add_argument('--prompt_key_init', default='uniform', type=str)
     subparsers.add_argument('--use_prompt_mask', default=True, type=bool)
     subparsers.add_argument('--mask_first_epoch', default=False, type=bool)
-    subparsers.add_argument('--shared_prompt_pool', default=True, type=bool)
+    subparsers.add_argument('--shared_prompt_pool', default=False, type=bool)
     subparsers.add_argument('--shared_prompt_key', default=False, type=bool)
-    subparsers.add_argument('--batchwise_prompt', default=True, type=bool)
+    subparsers.add_argument('--batchwise_prompt', default=False, type=bool)
     subparsers.add_argument('--embedding_key', default='cls', type=str)
     subparsers.add_argument('--predefined_key', default='', type=str)
     subparsers.add_argument('--pull_constraint', default=True)
@@ -118,7 +118,7 @@ def get_args_parser(subparsers):
     # ViT parameters
     subparsers.add_argument('--global_pool', default='token', choices=['token', 'avg'], type=str, help='type of global pooling for final sequence')
     subparsers.add_argument('--head_type', default='token', choices=['token', 'gap', 'prompt', 'token+prompt'], type=str, help='input type of classification head')
-    subparsers.add_argument('--freeze', default=['blocks', 'patch_embed', 'cls_token', 'norm', 'pos_embed'], nargs='*', type=list, help='freeze part in backbone model')
+    subparsers.add_argument('--freeze', default=['blocks', 'patch_embed', 'cls_token', 'pos_embed'], nargs='*', type=list, help='freeze part in backbone model')
 
     # Misc parameters
     # LGSP parameters
@@ -136,5 +136,5 @@ def get_args_parser(subparsers):
     # GSP parameters
     subparsers.add_argument('--num_r', default=100, type=int)
     subparsers.add_argument('--temperature', default=0.1, type=float)
-    subparsers.add_argument('--lr_Frequency_mask', default=0.03, type=float)
+    subparsers.add_argument('--lr_Frequency_mask', default=0.003, type=float)
     subparsers.add_argument('--print_freq', type=int, default=10, help = 'The frequency of printing')
